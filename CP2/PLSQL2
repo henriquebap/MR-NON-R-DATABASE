@@ -1,0 +1,464 @@
+-- Pacotes para manipulação de tipos e exceções
+CREATE OR REPLACE PACKAGE locadora_pkg IS
+
+TYPE veiculo_rec IS RECORD(
+    id_veiculo NUMBER(10),
+    marca VARCHAR2(50),
+    modelo VARCHAR2(50),
+    placa_veiculo VARCHAR2(10)
+  );
+
+  TYPE cliente_rec IS RECORD(
+    id_cliente NUMBER(10),
+    nm_cliente VARCHAR2(50),
+    nr_cpf VARCHAR2(11)
+  );
+
+  TYPE reserva_rec IS RECORD(
+    id_reserva NUMBER(10),
+    dt_reserva DATE,
+    dt_retirada DATE,
+    dt_devolucao DATE,
+    cliente_id NUMBER(10),
+    tp_veiculo VARCHAR2(2),
+    st_reserva VARCHAR2(1),
+    vr_total NUMBER(5,2)
+  );
+
+  TYPE checkin_rec IS RECORD(
+    id_checkin NUMBER(10),
+    nv_combustivel NUMBER(5,2),
+    km_atual INTEGER,
+    dt_hr_checkin DATE,
+    reserva_id NUMBER(10),
+    st_veiculo VARCHAR2(1)
+  );
+
+  TYPE checkout_rec IS RECORD(
+    id_checkout NUMBER(10),
+    checkin_id NUMBER(10),
+    nv_combustivel NUMBER(5,2),
+    km_atual INTEGER,
+    dt_hr_checkout DATE,
+    st_veiculo VARCHAR2(1)
+  );
+
+  TYPE pagamento_rec IS RECORD(
+    id_pagamento NUMBER(10),
+    dt_pagamento DATE,
+    tp_pagamento VARCHAR2(2),
+    nr_cartao VARCHAR2(20),
+    nr_parcelas INTEGER,
+    vl_parcela NUMBER(5,2),
+    vl_total NUMBER(5,2),
+    reserva_id NUMBER(10)
+  );
+
+
+    TYPE veiculo_list IS TABLE OF veiculo_rec;
+    TYPE cliente_list IS TABLE OF cliente_rec;
+    TYPE reserva_list IS TABLE OF reserva_rec;
+    TYPE checkin_list IS TABLE OF checkin_rec;
+    TYPE checkout_list IS TABLE OF checkout_rec;
+    TYPE pagamento_list IS TABLE OF pagamento_rec;
+
+    -- Exceções adicionais para as novas tabelas
+    PRAGMA EXCEPTION_INIT('LOCA_PKG_EXCEPCION');
+    PROCEDURE handle_reserva_error(p_error_code IN NUMBER, p_error_message IN VARCHAR2);
+    PROCEDURE handle_checkin_error(p_error_code IN NUMBER, p_error_message IN VARCHAR2);
+    PROCEDURE handle_checkout_error(p_error_code IN NUMBER, p_error_message IN VARCHAR2);
+    PROCEDURE handle_pagamento_error(p_error_code IN NUMBER, p_error_message IN VARCHAR2);
+
+    -- CRUD para VEICULO
+    PROCEDURE inserir_veiculo(p_marca IN VARCHAR2, p_modelo IN VARCHAR2, p_placa_veiculo IN VARCHAR2);
+    PROCEDURE atualizar_veiculo(p_id_veiculo IN NUMBER, p_marca IN VARCHAR2, p_modelo IN VARCHAR2, p_placa_veiculo IN VARCHAR2);
+    PROCEDURE excluir_veiculo(p_id_veiculo IN NUMBER);
+    FUNCTION obter_veiculo(p_id_veiculo IN NUMBER) RETURN veiculo_rec;
+    FUNCTION obter_todos_veiculos RETURN veiculo_list;
+
+    -- CRUD para CLIENTE
+    PROCEDURE inserir_cliente(p_nm_cliente IN VARCHAR2, p_nr_cpf IN VARCHAR2);
+    PROCEDURE atualizar_cliente(p_id_cliente IN NUMBER, p_nm_cliente IN VARCHAR2, p_nr_cpf IN VARCHAR2);
+    PROCEDURE excluir_cliente(p_id_cliente IN NUMBER);
+    FUNCTION obter_cliente(p_id_cliente IN NUMBER) RETURN cliente_rec;
+    FUNCTION obter_todos_clientes RETURN cliente_list;
+
+    -- Subprogramas para RESERVA
+    PROCEDURE inserir_reserva(p_dt_reserva IN DATE, p_dt_retirada IN DATE, p_dt_devolucao IN DATE, p_cliente_id IN NUMBER, p_tp_veiculo IN VARCHAR2, p_st_reserva IN VARCHAR2, p_vr_total NUMBER(5,2));
+    PROCEDURE atualizar_reserva(p_id_reserva IN NUMBER, p_dt_reserva IN DATE, p_dt_retirada IN DATE, p_dt_devolucao IN DATE, p_cliente_id IN NUMBER, p_tp_veiculo IN VARCHAR2, p_st_reserva IN VARCHAR2, p_vr_total NUMBER(5,2));
+    PROCEDURE excluir_reserva(p_id_reserva IN NUMBER);
+    FUNCTION obter_reserva(p_id_reserva IN NUMBER) RETURN reserva_rec;
+    FUNCTION obter_todas_reservas() RETURN reserva_list;
+
+    -- Subprogramas para CHECK-IN
+    PROCEDURE realizar_checkin(p_reserva_id IN NUMBER, p_nv_combustivel NUMBER(5,2), p_km_atual INTEGER, p_dt_hr_checkin DATE, p_st_veiculo VARCHAR2);
+    FUNCTION obter_checkin(p_id_checkin IN NUMBER) RETURN checkin_rec;
+    FUNCTION obter_checkin_por_reserva(p_id_reserva IN NUMBER) RETURN checkin_rec;
+
+    -- Subprogramas para CHECK-OUT
+    PROCEDURE realizar_checkout(p_checkin_id IN NUMBER, p_nv_combustivel NUMBER(5,2), p_km_atual INTEGER, p_dt_hr_checkout DATE, p_st_veiculo VARCHAR2);
+    FUNCTION obter_checkout(p_id_checkout IN NUMBER) RETURN checkout_rec;
+    FUNCTION obter_checkout_por_checkin(p_id_checkin IN NUMBER) RETURN checkout_rec;
+
+    -- Subprogramas para PAGAMENTO
+    PROCEDURE registrar_pagamento(p_reserva_id IN NUMBER, p_dt_pagamento DATE, p_tp_pagamento VARCHAR2, p_nr_cartao VARCHAR2, p_nr_parcelas INTEGER, p_vl_parcela NUMBER(5,2), p_vl_total NUMBER(5,2));
+    FUNCTION obter_pagamento(p_id_pagamento IN NUMBER) RETURN pagamento_rec;
+    FUNCTION obter_pagamento_por_reserva(p_id_reserva IN NUMBER) RETURN pagamento_rec;
+
+    -- Funções para obter listas com informações específicas
+    FUNCTION obter_veiculos_disponiveis(p_dt_retirada IN DATE, p_dt_devolucao IN DATE) RETURN veiculo_list;
+    FUNCTION obter_reservas_por_cliente(p_id_cliente IN NUMBER) RETURN reserva_list;
+    FUNCTION obter_historico_checkins(p_id_veiculo IN NUMBER) RETURN checkin_list;
+    FUNCTION obter_historico_checkouts(p_id_veiculo IN NUMBER) RETURN checkout_list;
+    FUNCTION obter_historico_pagamentos(p_id_cliente IN NUMBER) RETURN pagamento_list;
+
+END locadora_pkg;
+/
+
+-- Corpo do pacote locadora_pkg
+CREATE OR REPLACE PACKAGE BODY locadora_pkg IS
+-- Procedures e functions para a tabela VEICULO
+  PROCEDURE inserir_veiculo(p_marca IN VARCHAR2, p_modelo IN VARCHAR2, p_placa_veiculo IN VARCHAR2) IS
+  BEGIN
+    INSERT INTO T_RC_VEICULO (marca, modelo, placa_veiculo)
+      VALUES (p_marca, p_modelo, p_placa_veiculo);
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(-20000, 'Erro ao inserir veículo: ' || SQLCODE || ' - ' || SQLERRM);
+  END inserir_veiculo;
+
+  PROCEDURE atualizar_veiculo(p_id_veiculo IN NUMBER, p_marca IN VARCHAR2, p_modelo IN VARCHAR2, p_placa_veiculo IN VARCHAR2) IS
+  BEGIN
+    UPDATE T_RC_VEICULO
+      SET marca = p_marca,
+          modelo = p_modelo,
+          placa_veiculo = p_placa_veiculo
+    WHERE id_veiculo = p_id_veiculo;
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(-20001, 'Erro ao atualizar veículo: ' || SQLCODE || ' - ' || SQLERRM);
+  END atualizar_veiculo;
+
+  PROCEDURE excluir_veiculo(p_id_veiculo IN NUMBER) IS
+  BEGIN
+    DELETE FROM T_RC_VEICULO
+    WHERE id_veiculo = p_id_veiculo;
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(-20002, 'Erro ao excluir veículo: ' || SQLCODE || ' - ' || SQLERRM);
+  END excluir_veiculo;
+
+  FUNCTION obter_veiculo(p_id_veiculo IN NUMBER) RETURN veiculo_rec IS
+    v_veiculo veiculo_rec;
+  BEGIN
+    SELECT id_veiculo, marca, modelo, placa_veiculo
+    INTO v_veiculo
+    FROM T_RC_VEICULO
+    WHERE id_veiculo = p_id_veiculo;
+    RETURN v_veiculo;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      NULL;
+  END obter_veiculo;
+
+  FUNCTION obter_todos_veiculos RETURN veiculo_list IS
+    v_veiculos veiculo_list := veiculo_list();
+  BEGIN
+    FOR r IN (SELECT id_veiculo, marca, modelo, placa_veiculo FROM T_RC_VEICULO) LOOP
+      v_veiculos.EXTEND;
+      v_veiculos(v_veiculos.COUNT) := r;
+    END LOOP;
+    RETURN v_veiculos;
+  END obter_todos_veiculos;
+
+  -- CRUD para CLIENTE
+
+  PROCEDURE inserir_cliente(p_nm_cliente IN VARCHAR2, p_nr_cpf IN VARCHAR2) IS
+  BEGIN
+    INSERT INTO T_RC_CLIENTE (nm_cliente, nr_cpf)
+      VALUES (p_nm_cliente, p_nr_cpf);
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(-20010, 'Erro ao inserir cliente: ' || SQLCODE || ' - ' || SQLERRM);
+  END inserir_cliente;
+
+  PROCEDURE atualizar_cliente(p_id_cliente IN NUMBER, p_nm_cliente IN VARCHAR2, p_nr_cpf IN VARCHAR2) IS
+  BEGIN
+    UPDATE T_RC_CLIENTE
+      SET nm_cliente = p_nm_cliente,
+          nr_cpf = p_nr_cpf
+    WHERE id_cliente = p_id_cliente;
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(-20011, 'Erro ao atualizar cliente: ' || SQLCODE || ' - ' || SQLERRM);
+  END atualizar_cliente;
+
+  PROCEDURE excluir_cliente(p_id_cliente IN NUMBER) IS
+  BEGIN
+    DELETE FROM T_RC_CLIENTE
+    WHERE id_cliente = p_id_cliente;
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE_APPLICATION_ERROR(-20012, 'Erro ao excluir cliente: ' || SQLCODE || ' - ' || SQLERRM);
+  END excluir_cliente;
+
+  FUNCTION obter_cliente(p_id_cliente IN NUMBER) RETURN cliente_rec IS
+    v_cliente cliente_rec;
+  BEGIN
+    SELECT id_cliente, nm_cliente, nr_cpf
+    INTO v_cliente
+    FROM T_RC_CLIENTE
+    WHERE id_cliente = p_id_cliente;
+    RETURN v_cliente;
+  EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      NULL;
+  END obter_cliente;
+
+  FUNCTION obter_todos_clientes RETURN cliente_list IS
+    v_clientes cliente_list := cliente_list();
+  BEGIN
+    FOR r IN (SELECT id_cliente, nm_cliente, nr_cpf FROM T_RC_CLIENTE) LOOP
+      v_clientes.EXTEND;
+      v_clientes(v_clientes.COUNT) := r;
+    END LOOP;
+    RETURN v_clientes;
+  END obter_todos_clientes;
+    -- Proceduras e funções para RESERVA
+    PROCEDURE inserir_reserva(p_dt_reserva IN DATE, p_dt_retirada IN DATE, p_dt_devolucao IN DATE, p_cliente_id IN NUMBER, p_tp_veiculo IN VARCHAR2, p_st_reserva IN VARCHAR2, p_vr_total NUMBER(5,2)) IS
+    BEGIN
+        INSERT INTO T_RC_RESERVA (dt_reserva, dt_retirada, dt_devolucao, cliente_id, tp_veiculo, st_reserva, vr_total)
+          VALUES (p_dt_reserva, p_dt_retirada, p_dt_devolucao, p_cliente_id, p_tp_veiculo, p_st_reserva, p_vr_total);
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE_APPLICATION_ERROR(-20020, 'Erro ao inserir reserva: ' || SQLCODE || ' - ' || SQLERRM);
+    END inserir_reserva;
+
+    PROCEDURE atualizar_reserva(p_id_reserva IN NUMBER, p_dt_reserva IN DATE, p_dt_retirada IN DATE, p_dt_devolucao IN DATE, p_cliente_id IN NUMBER, p_tp_veiculo IN VARCHAR2, p_st_reserva IN VARCHAR2, p_vr_total NUMBER(5,2)) IS
+    BEGIN
+        UPDATE T_RC_RESERVA
+          SET dt_reserva = p_dt_reserva,
+              dt_retirada = p_dt_retirada,
+              dt_devolucao = p_dt_devolucao,
+              cliente_id = p_cliente_id,
+              tp_veiculo = p_tp_veiculo,
+              st_reserva = p_st_reserva,
+              vr_total = p_vr_total
+        WHERE id_reserva = p_id_reserva;
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE_APPLICATION_ERROR(-20021, 'Erro ao atualizar reserva: ' || SQLCODE || ' - ' || SQLERRM);
+    END atualizar_reserva;
+
+    PROCEDURE excluir_reserva(p_id_reserva IN NUMBER) IS
+    BEGIN
+        DELETE FROM T_RC_RESERVA
+        WHERE id_reserva = p_id_reserva;
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE_APPLICATION_ERROR(-20022, 'Erro ao excluir reserva: ' || SQLCODE || ' - ' || SQLERRM);
+    END excluir_reserva;
+
+    FUNCTION obter_reserva(p_id_reserva IN NUMBER) RETURN reserva_rec IS
+        v_reserva reserva_rec;
+    BEGIN
+        SELECT *
+        INTO v_reserva
+        FROM T_RC_RESERVA
+        WHERE id_reserva = p_id_reserva;
+        RETURN v_reserva;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RETURN NULL;
+    END obter_reserva;
+
+    FUNCTION obter_todas_reservas() RETURN reserva_list IS
+        v_reservas reserva_list := reserva_list();
+    BEGIN
+        FOR r IN (SELECT * FROM T_RC_RESERVA) LOOP
+            v_reservas.EXTEND;
+            v_reservas(v_reservas.COUNT) := r;
+        END LOOP;
+        RETURN v_reservas;
+    END obter_todas_reservas;
+
+    -- Subprogramas para CHECK-IN
+    PROCEDURE realizar_checkin(p_reserva_id IN NUMBER, p_nv_combustivel NUMBER(5,2), p_km_atual INTEGER, p_dt_hr_checkin DATE, p_st_veiculo VARCHAR2) IS
+    BEGIN
+        INSERT INTO T_RC_CHECKIN (reserva_id, nv_combustivel, km_atual, dt_hr_checkin, st_veiculo)
+          VALUES (p_reserva_id, p_nv_combustivel, p_km_atual, p_dt_hr_checkin, p_st_veiculo);
+        UPDATE T_RC_RESERVA
+          SET st_reserva = 'C'
+        WHERE id_reserva = p_reserva_id;
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE_APPLICATION_ERROR(-20030, 'Erro ao realizar check-in: ' || SQLCODE || ' - ' || SQLERRM);
+    END realizar_checkin;
+
+    FUNCTION obter_checkin(p_id_checkin IN NUMBER) RETURN checkin_rec IS
+        v_checkin checkin_rec;
+    BEGIN
+        SELECT *
+        INTO v_checkin
+        FROM T_RC_CHECKIN
+        WHERE id_checkin = p_id_checkin;
+        RETURN v_checkin;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RETURN NULL;
+    END obter_checkin;
+
+    FUNCTION obter_checkin_por_reserva(p_id_reserva IN NUMBER) RETURN checkin_rec IS
+        v_checkin checkin_rec;
+    BEGIN
+        SELECT *
+        INTO v_checkin
+        FROM T_RC_CHECKIN
+        WHERE reserva_id = p_id_reserva;
+        RETURN v_checkin;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RETURN NULL;
+    END obter_checkin_por_reserva;
+
+    -- Subprogramas para CHECK-OUT
+    PROCEDURE realizar_checkout(p_checkin_id IN NUMBER, p_nv_combustivel NUMBER(5,2), p_km_atual INTEGER, p_dt_hr_checkout DATE, p_st_veiculo VARCHAR2) IS
+    BEGIN
+        INSERT INTO T_RC_CHECKOUT (checkin_id, nv_combustivel, km_atual, dt_hr_checkout, st_veiculo)
+          VALUES (p_checkin_id, p_nv_combustivel, p_km_atual, p_dt_hr_checkout, p_st_veiculo);
+        UPDATE T_RC_RESERVA
+          SET st_reserva = 'F'
+        WHERE id_reserva = (SELECT reserva_id FROM T_RC_CHECKIN WHERE id_checkin = p_checkin_id);
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE_APPLICATION_ERROR(-20040, 'Erro ao realizar check-out: ' || SQLCODE || ' - ' || SQLERRM);
+    END realizar_checkout;
+
+    FUNCTION obter_checkout(p_id_checkout IN NUMBER) RETURN checkout_rec IS
+        v_checkout checkout_rec;
+    BEGIN
+        SELECT *
+        INTO v_checkout
+        FROM T_RC_CHECKOUT
+        WHERE id_checkout = p_id_checkout;
+        RETURN v_checkout;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RETURN NULL;
+    END obter_checkout;
+
+    FUNCTION obter_checkout_por_checkin(p_id_checkin IN NUMBER) RETURN checkout_rec IS
+        v_checkout checkout_rec;
+    BEGIN
+        SELECT *
+        INTO v_checkout
+        FROM T_RC_CHECKOUT
+        WHERE checkin_id = p_id_checkin;
+        RETURN v_checkout;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RETURN NULL;
+    END obter_checkout_por_checkin;
+
+    -- Subprogramas para PAGAMENTO
+    PROCEDURE registrar_pagamento(p_reserva_id IN NUMBER, p_dt_pagamento DATE, p_tp_pagamento VARCHAR2, p_nr_cartao VARCHAR2, p_nr_parcelas INTEGER, p_vl_parcela NUMBER(5,2), p_vl_total NUMBER(5,2)) IS
+    BEGIN
+        INSERT INTO T_RC_PAGAMENTO (reserva_id, dt_pagamento, tp_pagamento, nr_cartao, nr_parcelas, vl_parcela, vl_total)
+          VALUES (p_reserva_id, p_dt_pagamento, p_tp_pagamento, p_nr_cartao, p_nr_parcelas, p_vl_parcela, p_vl_total);
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE_APPLICATION_ERROR(-20050, 'Erro ao registrar pagamento: ' || SQLCODE || ' - ' || SQLERRM);
+    END registrar_pagamento;
+
+    FUNCTION obter_pagamento(p_id_pagamento IN NUMBER) RETURN pagamento_rec IS
+        v_pagamento pagamento_rec;
+    BEGIN
+        SELECT *
+        INTO v_pagamento
+        FROM T_RC_PAGAMENTO
+        WHERE id_pagamento = p_id_pagamento;
+        RETURN v_pagamento;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RETURN NULL;
+    END obter_pagamento;
+
+    FUNCTION obter_pagamento_por_reserva(p_id_reserva IN NUMBER) RETURN pagamento_rec IS
+        v_pagamento pagamento_rec;
+    BEGIN
+        SELECT *
+        INTO v_pagamento
+        FROM T_RC_PAGAMENTO
+        WHERE reserva_id = p_id_reserva;
+        RETURN v_pagamento;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RETURN NULL;
+    END obter_pagamento_por_reserva;
+
+    -- Funções para obter listas com informações específicas
+    FUNCTION obter_veiculos_disponiveis(p_dt_retirada IN DATE, p_dt_devolucao IN DATE) RETURN veiculo_list IS
+        v_veiculos_disp veiculo_list := veiculo_list();
+        c_reserva_existe CURSOR(p_id_veiculo IN NUMBER, p_dt_retirada IN DATE, p_dt_devolucao IN DATE) IS
+          SELECT 1
+          FROM T_RC_RESERVA
+          WHERE id_veiculo = p_id_veiculo
+          AND ((dt_retirada <= p_dt_retirada AND dt_devolucao >= p_dt_devolucao)
+               OR (dt_retirada >= p_dt_retirada AND dt_retirada <= p_dt_devolucao)
+               OR (dt_devolucao >= p_dt_retirada AND dt_devolucao <= p_dt_devolucao));
+        BEGIN
+          FOR r IN (SELECT * FROM T_RC_VEICULO) LOOP
+            OPEN c_reserva_existe(r.id_veiculo, p_dt_retirada, p_dt_devolucao);
+            FETCH c_reserva_existe;
+            CLOSE c_reserva_existe;
+
+            IF SQL%NOTFOUND THEN
+              v_veiculos_disp.EXTEND;
+              v_veiculos_disp(v_veiculos_disp.COUNT) := r;
+            END IF;
+          END LOOP;
+        END obter_veiculos_disponiveis;
+
+    FUNCTION obter_reservas_por_cliente(p_id_cliente IN NUMBER) RETURN reserva_list IS
+        v_reservas_cliente reserva_list := reserva_list();
+    BEGIN
+        FOR r IN (SELECT * FROM T_RC_RESERVA WHERE cliente_id = p_id_cliente) LOOP
+            v_reservas_cliente.EXTEND;
+            v_reservas_cliente(v_reservas_cliente.COUNT) := r;
+        END LOOP;
+        RETURN v_reservas_cliente;
+    END obter_reservas_por_cliente;
+
+    FUNCTION obter_historico_checkins(p_id_veiculo IN NUMBER) RETURN checkin_list IS
+        v_historico_checkin checkin_list := checkin_list();
+    BEGIN
+        FOR r IN (SELECT * FROM T_RC_CHECKIN WHERE id_veiculo = p_id_veiculo) LOOP
+            v_historico_checkin.EXTEND;
+            v_historico_checkin(v_historico_checkin.COUNT) := r;
+        END LOOP;
+        RETURN v_historico_checkin;
+    END obter_historico_checkins;
+
+    FUNCTION obter_historico_checkouts(p_id_veiculo IN NUMBER) RETURN checkout_list IS
+        v_historico_checkout checkout_list := checkout_list();
+    BEGIN
+        FOR r IN (SELECT * FROM T_RC_CHECKOUT WHERE id_veiculo = p_id_veiculo) LOOP
+            v_historico_checkout.EXTEND;
+            v_historico_checkout(v_historico_checkout.COUNT) := r;
+        END LOOP;
+        RETURN v_historico_checkout;
+    END obter_historico_checkouts;
+
+    FUNCTION obter_historico_pagamentos(p_id_cliente IN NUMBER) RETURN pagamento_list IS
+        v_historico_pagamento pagamento_list := pagamento_list();
+    BEGIN
+        FOR r IN (SELECT * FROM T_RC_PAGAMENTO WHERE cliente_id = p_id_cliente) LOOP
+            v_historico_pagamento.EXTEND;
+            v_historico_pagamento(v_historico_pagamento.COUNT) := r;
+        END LOOP;
+        RETURN v_historico_pagamento;
+    END obter_historico_pagamentos;
+
+END locadora_pkg;
+/
+
